@@ -34,6 +34,7 @@ void ext_main(void* r)
 	max_jit_class_obex_setup(max_class, calcoffset(t_max_imp_push, obex));
 
 	jit_class = (t_class*)jit_class_findbyname(gensym("imp_push"));
+	max_jit_class_mop_wrap(max_class, jit_class, MAX_JIT_MOP_FLAGS_OWN_ADAPT | MAX_JIT_MOP_FLAGS_OWN_OUTPUTMODE);
 	max_jit_class_wrap_standard(max_class, jit_class, 0); // attrs & methods for getattributes, dumpout, maxjitclassaddmethods, etc
 
 	class_addmethod(max_class, (method)max_jit_mop_assist, "assist", A_CANT, 0); // standard matrix-operator (mop) assist fn
@@ -74,6 +75,7 @@ void* max_imp_push_new(t_symbol* s, long argc, t_atom* argv)
 
 void max_imp_push_free(t_max_imp_push* x)
 {
+	max_jit_mop_free(x);
 	jit_object_free(max_jit_obex_jitob_get(x));
 	max_jit_object_free(x);
 }

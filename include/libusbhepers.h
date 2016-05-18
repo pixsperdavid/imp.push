@@ -9,8 +9,27 @@
 
 #include "libusb.h"
 
-#define ABLETON_VENDOR_ID 0x2982
-#define PUSH2_PRODUCT_ID  0x1967
+const int ABLETON_VENDOR_ID = 0x2982;
+const int PUSH2_PRODUCT_ID = 0x1967;
+
+const uint8_t PUSH2_DISPLAY_FRAME_HEADER[] = 
+{ 0xFF, 0xCC, 0xAA, 0x88,
+0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00 };
+
+const int PUSH2_DISPLAY_WIDTH = 960;
+const int PUSH2_DISPLAY_HEIGHT = 160;
+const int PUSH2_DISPLAY_LINE_SIZE = 2048;
+const int PUSH2_DISPLAY_LINE_GUTTER = 128;
+const int PUSH2_DISPLAY_MESSAGE_BUFFER = 16384;
+const int PUSH2_DISPLAY_IMAGE_BUFFER = 2048 * 160;
+const int PUSH2_DISPLAY_MESSAGES_PER_IMAGE = (2048 * 160) / 16384;
+
+const int PUSH2_DISPLAY_SHAPING_PATTERN = 0xFFE7F3E7;
+
+const int PUSH2_DISPLAY_FRAMERATE = 60;
+
 
 libusb_device_handle* open_push2_device()
 {

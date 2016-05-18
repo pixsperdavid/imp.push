@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros">
+    <C74SUPPORT>$(ProjectDir)lib\max-sdk\source\c74support\</C74SUPPORT>
+    <C74_ROOT>$(SYSBUILD)\resources</C74_ROOT>
+    <EXTERNALS_ROOT>$(C74_ROOT)\externals</EXTERNALS_ROOT>
+    <EXTENSIONS_ROOT>$(C74_ROOT)\extensions</EXTENSIONS_ROOT>
+    <JSEXTENSIONS_ROOT>$(C74_ROOT)\jsextensions</JSEXTENSIONS_ROOT>
+  </PropertyGroup>
+  <PropertyGroup>
+    <MaxPackageDir>$(USERPROFILE)\Documents\Max 7\Packages\imp.push\</MaxPackageDir>
+  </PropertyGroup>
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.40219.1</_ProjectFileVersion>
+    <OutDir>$(SolutionDir)bin\$(Configuration)_$(Platform)\</OutDir>
+    <IntDir>$(SolutionDir)inter\$(Configuration)_$(Platform)\$(ProjectName)\</IntDir>
+    <EmbedManifest>false</EmbedManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalDependencies>MaxAPI.lib;MaxAudio.lib;jitlib.lib;libusb-1.0.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <ResourceCompile>
+      <PreprocessorDefinitions>VER_TARGETNAME=\"$(TargetName)\";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+    <ClCompile>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NOMINMAX;MAXAPI_USE_MSCRT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(C74SUPPORT)\max-includes;$(C74SUPPORT)\msp-includes;$(C74SUPPORT)\jit-includes;$(SolutionDir)include;$(SolutionDir)lib\libusb-1.0.20\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Manifest>
+      <OutputManifestFile>$(IntDir)$(TargetName).manifest</OutputManifestFile>
+    </Manifest>
+    <PostBuildEvent>
+      <Command>xcopy /F /R /Y /I "$(TargetPath)" "$(MaxPackageDir)\externals\"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <BuildMacro Include="C74SUPPORT">
+      <Value>$(C74SUPPORT)</Value>
+    </BuildMacro>
+    <BuildMacro Include="C74_ROOT">
+      <Value>$(C74_ROOT)</Value>
+    </BuildMacro>
+    <BuildMacro Include="EXTERNALS_ROOT">
+      <Value>$(EXTERNALS_ROOT)</Value>
+    </BuildMacro>
+    <BuildMacro Include="EXTENSIONS_ROOT">
+      <Value>$(EXTENSIONS_ROOT)</Value>
+    </BuildMacro>
+    <BuildMacro Include="JSEXTENSIONS_ROOT">
+      <Value>$(JSEXTENSIONS_ROOT)</Value>
+    </BuildMacro>
+  </ItemGroup>
+</Project>

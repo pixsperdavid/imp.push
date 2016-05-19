@@ -110,74 +110,68 @@ void push2_close_device(libusb_device_handle* device_handle)
 	libusb_close(device_handle);
 }
 
-void callback(struct libusb_transfer* transfer)
+void push2_transfer_callback(struct libusb_transfer* transfer)
 {
-	int i = 0;
+	switch (transfer->status)
+	{
+	case LIBUSB_TRANSFER_COMPLETED:
+		break;
+	case LIBUSB_TRANSFER_CANCELLED:
+	case LIBUSB_TRANSFER_NO_DEVICE:
+	case LIBUSB_TRANSFER_TIMED_OUT:
+	case LIBUSB_TRANSFER_ERROR:
+	case LIBUSB_TRANSFER_STALL:
+	case LIBUSB_TRANSFER_OVERFLOW:
+		break;
+	}
 }
 
-void push2_send_frame(libusb_device_handle* device_handle, uint8_t* buffer)
+BOOL push2_send_frame(libusb_device_handle* device_handle, uint8_t* buffer)
 {
-	/*struct libusb_transfer* frame_header_transfer;
+	struct libusb_transfer* frame_header_transfer;
 
 	if ((frame_header_transfer = libusb_alloc_transfer(0)) == NULL)
-	{
-		printf("error: could not allocate frame header transfer handle\n");
-	}
-	else
-	{
-		libusb_fill_bulk_transfer(
-			frame_header_transfer,
-			device_handle,
-			PUSH2_BULK_EP_OUT,
-			PUSH2_DISPLAY_FRAME_HEADER,
-			sizeof(PUSH2_DISPLAY_FRAME_HEADER),
-			NULL,
-			NULL,
-			PUSH2_TRANSFER_TIMEOUT);
+		return FALSE;
 
-		
-	}*/
-
-	int actual_length;
-	libusb_bulk_transfer(
+	libusb_fill_bulk_transfer(
+		frame_header_transfer,
 		device_handle,
 		PUSH2_BULK_EP_OUT,
 		PUSH2_DISPLAY_FRAME_HEADER,
 		sizeof(PUSH2_DISPLAY_FRAME_HEADER),
-		&actual_length,
+		push2_transfer_callback,
+		NULL,
 		PUSH2_TRANSFER_TIMEOUT);
+
+	if (libusb_submit_transfer(frame_header_transfer) < 0)
+	{
+		libusb_free_transfer(frame_header_transfer);
+		return FALSE;
+	}
 
 	for(int i = 0; i < PUSH2_DISPLAY_MESSAGES_PER_IMAGE; ++i)
 	{
-		/*struct libusb_transfer* pixel_data_transfer;
+		struct libusb_transfer* pixel_data_transfer;
 
 		if ((pixel_data_transfer = libusb_alloc_transfer(0)) == NULL)
-		{
-			printf("error: could not allocate transfer handle\n");
-		}
-		else
-		{
-			libusb_fill_bulk_transfer(
-				pixel_data_transfer,
-				device_handle,
-				PUSH2_BULK_EP_OUT,
-				buffer + (i * PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE),
-				PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE,
-				callback,
-				NULL,
-				PUSH2_TRANSFER_TIMEOUT);
+			return FALSE;
 
-			libusb_submit_transfer(pixel_data_transfer);
-		}*/
-
-		int actual_length;
-		libusb_bulk_transfer(
+		libusb_fill_bulk_transfer(
+			pixel_data_transfer,
 			device_handle,
 			PUSH2_BULK_EP_OUT,
 			buffer + (i * PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE),
 			PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE,
-			&actual_length,
+			push2_transfer_callback,
+			NULL,
 			PUSH2_TRANSFER_TIMEOUT);
-		
+
+		if (libusb_submit_transfer(pixel_data_transfer) < 0)
+		{
+			libusb_free_transfer(pixel_data_transfer);
+			return FALSE;
+		}
 	}
+
+	return TRUE;
 }

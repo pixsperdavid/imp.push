@@ -11,6 +11,7 @@ typedef struct _imp_push
 	t_object object;
 
 	t_systhread thread;
+	t_systhread usb_thread;
 	t_systhread_mutex mutex;
 	t_bool isThreadCancel;
 
@@ -31,7 +32,7 @@ void imp_push_free(t_imp_push* x);
 t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs);
 void imp_push_mask_buffer(t_imp_push* x);
 void* imp_push_threadproc(t_imp_push *x);
-void imp_push_drawframe(t_imp_push* x);
+void* imp_push_libusbproc(t_imp_push *x);
 END_USING_C_LINKAGE
 
 // Globals
@@ -92,6 +93,7 @@ t_imp_push* imp_push_new()
 		x->device = push2_open_device();
 
 		systhread_create((method)imp_push_threadproc, x, 0, 0, 0, &x->thread);
+		systhread_create((method)imp_push_libusbproc, x, 0, 0, 0, &x->usb_thread);
 
 	}
 	return x;
@@ -102,6 +104,7 @@ void imp_push_free(t_imp_push* x)
 	x->isThreadCancel = true;
 	uint* value;
 	systhread_join(x->thread, &value);
+	systhread_join(x->usb_thread, &value);
 
 	systhread_mutex_free(x->mutex);
 
@@ -209,5 +212,14 @@ void* imp_push_threadproc(t_imp_push *x)
 			push2_send_frame(x->device, buffer_to_send);
 
 		systhread_sleep(1000 / PUSH2_DISPLAY_FRAMERATE);
+	}
+}
+
+void* imp_push_libusbproc(t_imp_push *x)
+{
+	while (!x->isThreadCancel)
+	{
+		if (libusb_handle_events(NULL) != LIBUSB_SUCCESS)
+			break;
 	}
 }

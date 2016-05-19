@@ -144,11 +144,10 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 		dimcount = in_minfo.dimcount;
 		planecount = in_minfo.planecount;
 
-		char* src = in_bp;
+		uint8_t* src = in_bp;
 
 		systhread_mutex_lock(x->mutex);
-		uint8_t* buffer_to_write = x->frame_buffer;
-		x->frame_buffer = x->frame_buffer == x->frame_bufferA ? x->frame_bufferB : x->frame_bufferA;
+		uint8_t* buffer_to_write = x->frame_buffer == x->frame_bufferA ? x->frame_bufferB : x->frame_bufferA;
 		systhread_mutex_unlock(x->mutex);
 
 		uint16_t* dst = (uint16_t*)buffer_to_write;
@@ -157,7 +156,7 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 		{
 			for (int r = 0; r < PUSH2_DISPLAY_WIDTH; ++r)
 			{
-				*dst++ = (*(src + 1) >> 3) & ((*(src + 2) & 0xFC) << 3) & ((*(src + 3) & 0xF8) << 8);
+				*dst++ = (*(src + 1) >> 3) | ((*(src + 2) & 0xFC) << 3) | ((*(src + 3) & 0xF8) << 8);
 				src += 4;
 			}
 
@@ -165,6 +164,10 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 		}
 
 		imp_push_mask_buffer(x, buffer_to_write);
+
+		systhread_mutex_lock(x->mutex);
+		x->frame_buffer = buffer_to_write;
+		systhread_mutex_unlock(x->mutex);
 	}
 	else
 	{

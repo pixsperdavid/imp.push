@@ -82,7 +82,9 @@ t_imp_push* imp_push_new()
 	if (x)
 	{
 		x->frame_bufferA = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		imp_push_mask_buffer(x, x->frame_bufferA);
 		x->frame_bufferB = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		imp_push_mask_buffer(x, x->frame_bufferB);
 		x->frame_buffer = x->frame_bufferA;
 
 		systhread_mutex_new(&x->mutex, 0);
@@ -145,23 +147,24 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 		char* src = in_bp;
 
 		systhread_mutex_lock(x->mutex);
-		uint16_t* dst = (uint16_t*)x->frame_buffer;
+		uint8_t* buffer_to_write = x->frame_buffer;
 		x->frame_buffer = x->frame_buffer == x->frame_bufferA ? x->frame_bufferB : x->frame_bufferA;
 		systhread_mutex_unlock(x->mutex);
+
+		uint16_t* dst = (uint16_t*)buffer_to_write;
 
 		for(int l = 0; l < PUSH2_DISPLAY_HEIGHT; ++l)
 		{
 			for (int r = 0; r < PUSH2_DISPLAY_WIDTH; ++r)
 			{
-				*dst++ = (*(src + 1) >> 3) & (*(src + 2) >> 2) & (*(src + 3) >> 3);
+				*dst++ = (*(src + 1) >> 3) & ((*(src + 2) & 0xFC) << 3) & ((*(src + 3) & 0xF8) << 8);
 				src += 4;
 			}
 
 			dst += PUSH2_DISPLAY_LINE_GUTTER_SIZE / 2;
 		}
 
-		imp_push_mask_buffer(x);
-
+		imp_push_mask_buffer(x, buffer_to_write);
 	}
 	else
 	{
@@ -173,7 +176,7 @@ out:
 	return err;
 }
 
-void imp_push_mask_buffer(t_imp_push* x)
+void imp_push_mask_buffer(t_imp_push* x, uint8_t* buffer)
 {
 	for(int l = 0; l < PUSH2_DISPLAY_HEIGHT; ++l)
 	{
@@ -181,10 +184,10 @@ void imp_push_mask_buffer(t_imp_push* x)
 
 		for(int r = 0; r < PUSH2_DISPLAY_LINE_SIZE - PUSH2_DISPLAY_LINE_GUTTER_SIZE; r += 4)
 		{
-			x->frame_buffer[offset + r] = x->frame_buffer[offset + r] ^ 0xE7;
-			x->frame_buffer[offset + r + 1] = x->frame_buffer[offset + r + 1] ^ 0xF3;
-			x->frame_buffer[offset + r + 2] = x->frame_buffer[offset + r + 2] ^ 0xE7;
-			x->frame_buffer[offset + r + 3] = x->frame_buffer[offset + r + 3] ^ 0xFF;
+			buffer[offset + r] = buffer[offset + r] ^ 0xE7;
+			buffer[offset + r + 1] = buffer[offset + r + 1] ^ 0xF3;
+			buffer[offset + r + 2] = buffer[offset + r + 2] ^ 0xE7;
+			buffer[offset + r + 3] = buffer[offset + r + 3] ^ 0xFF;
 		}
 	}
 }

@@ -267,9 +267,6 @@
     <ClCompile Include="src\imp.push.c" />
     <ClCompile Include="src\max.imp.push.c" />
   </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="include\libusbhepers.h" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

@@ -1,8 +1,33 @@
-#undef check
-
-#include "libusbhepers.h"
+#include "libusb.h"
 #include "jit.common.h"
 
+// Constants
+#define ABLETON_VENDOR_ID 0x2982
+#define PUSH2_PRODUCT_ID 0x1967
+#define PUSH2_BULK_EP_OUT 0x01
+#define PUSH2_TRANSFER_TIMEOUT 1000
+
+#define PUSH2_DISPLAY_WIDTH 960
+#define PUSH2_DISPLAY_HEIGHT 160
+#define PUSH2_DISPLAY_LINE_BUFFER_SIZE 2048
+#define PUSH2_DISPLAY_LINE_GUTTER_SIZE 128
+#define PUSH2_DISPLAY_LINE_DATA_SIZE PUSH2_DISPLAY_LINE_BUFFER_SIZE - 
+#define PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE 16384
+#define PUSH2_DISPLAY_IMAGE_BUFFER_SIZE PUSH2_DISPLAY_LINE_BUFFER_SIZE * PUSH2_DISPLAY_HEIGHT
+#define PUSH2_DISPLAY_MESSAGES_PER_IMAGE (PUSH2_DISPLAY_LINE_BUFFER_SIZE * PUSH2_DISPLAY_HEIGHT) / PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE
+
+#define PUSH2_DISPLAY_SHAPING_PATTERN_1 0xE7
+#define PUSH2_DISPLAY_SHAPING_PATTERN_2 0xF3
+#define PUSH2_DISPLAY_SHAPING_PATTERN_3 0xE7
+#define PUSH2_DISPLAY_SHAPING_PATTERN_4 0xFF
+
+#define PUSH2_DISPLAY_FRAMERATE 60
+
+const uint8_t PUSH2_DISPLAY_FRAME_HEADER[] =
+{ 0xFF, 0xCC, 0xAA, 0x88,
+0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00 };
 
 
 // Struct definition
@@ -11,16 +36,14 @@ typedef struct _imp_push
 	t_object object;
 
 	t_systhread thread;
-	t_systhread usb_thread;
 	t_systhread_mutex mutex;
 	t_bool isThreadCancel;
 
-	
-	t_uint8* frame_buffer;
-	t_uint8* frame_bufferA;
-	t_uint8* frame_bufferB;
+	t_uint8* draw_buffer;
+	t_uint8* send_buffer;
 
 	libusb_device_handle* device;
+	BOOL is_matrix_received;
 
 } t_imp_push;
 
@@ -30,9 +53,10 @@ t_jit_err imp_push_init();
 t_imp_push* imp_push_new();
 void imp_push_free(t_imp_push* x);
 t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs);
-void imp_push_mask_buffer(t_imp_push* x);
+void imp_push_copyandmask_buffer(t_imp_push* x);
 void* imp_push_threadproc(t_imp_push *x);
-void* imp_push_libusbproc(t_imp_push *x);
+libusb_device_handle* imp_push_open_device(t_imp_push* x);
+void imp_push_close_device(t_imp_push* x, libusb_device_handle* device_handle);
 END_USING_C_LINKAGE
 
 // Globals
@@ -74,7 +98,6 @@ t_jit_err imp_push_init()
 
 // **************************************************************************************************************************
 
-
 t_imp_push* imp_push_new()
 {
 	t_imp_push* x = NULL;
@@ -82,37 +105,32 @@ t_imp_push* imp_push_new()
 	x = (t_imp_push*)jit_object_alloc(s_imp_push_class);
 	if (x)
 	{
-		x->frame_bufferA = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
-		imp_push_mask_buffer(x, x->frame_bufferA);
-		x->frame_bufferB = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
-		imp_push_mask_buffer(x, x->frame_bufferB);
-		x->frame_buffer = x->frame_bufferA;
-
 		systhread_mutex_new(&x->mutex, 0);
 
-		x->device = push2_open_device();
+		x->draw_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		x->send_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		x->is_matrix_received = false;
+
+		x->device = imp_push_open_device(x);
 
 		systhread_create((method)imp_push_threadproc, x, 0, 0, 0, &x->thread);
-		systhread_create((method)imp_push_libusbproc, x, 0, 0, 0, &x->usb_thread);
-
 	}
 	return x;
 }
 
 void imp_push_free(t_imp_push* x)
 {
-	x->isThreadCancel = true;
+	x->isThreadCancel = true; 
 	uint* value;
 	systhread_join(x->thread, &value);
-	systhread_join(x->usb_thread, &value);
 
 	systhread_mutex_free(x->mutex);
 
 	if (x->device != NULL)
-		push2_close_device(x->device);
+		imp_push_close_device(x, x->device);
 
-	sysmem_freeptr(x->frame_buffer);
-	
+	sysmem_freeptr(x->draw_buffer);
+	sysmem_freeptr(x->send_buffer);
 }
 
 t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
@@ -133,6 +151,8 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 	{
 		in_savelock = (long)jit_object_method(in_matrix, _jit_sym_lock, 1);
 
+		x->is_matrix_received = true;
+
 		jit_object_method(in_matrix, _jit_sym_getinfo, &in_minfo);
 
 		jit_object_method(in_matrix, _jit_sym_getdata, &in_bp);
@@ -149,15 +169,11 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 
 		uint8_t* src = in_bp;
 
-		systhread_mutex_lock(x->mutex);
-		uint8_t* buffer_to_write = x->frame_buffer == x->frame_bufferA ? x->frame_bufferB : x->frame_bufferA;
-		systhread_mutex_unlock(x->mutex);
+		uint16_t* dst = (uint16_t*)x->draw_buffer;
 
-		uint16_t* dst = (uint16_t*)buffer_to_write;
-
-		for(int l = 0; l < PUSH2_DISPLAY_HEIGHT; ++l)
+		for(int dX = 0; dX < PUSH2_DISPLAY_HEIGHT; ++dX)
 		{
-			for (int r = 0; r < PUSH2_DISPLAY_WIDTH; ++r)
+			for (int dY = 0; dY < PUSH2_DISPLAY_WIDTH; ++dY)
 			{
 				*dst++ = (*(src + 1) >> 3) | ((*(src + 2) & 0xFC) << 3) | ((*(src + 3) & 0xF8) << 8);
 				src += 4;
@@ -166,11 +182,7 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 			dst += PUSH2_DISPLAY_LINE_GUTTER_SIZE / 2;
 		}
 
-		imp_push_mask_buffer(x, buffer_to_write);
-
-		systhread_mutex_lock(x->mutex);
-		x->frame_buffer = buffer_to_write;
-		systhread_mutex_unlock(x->mutex);
+		imp_push_copyandmask_buffer(x);
 	}
 	else
 	{
@@ -182,44 +194,147 @@ out:
 	return err;
 }
 
-void imp_push_mask_buffer(t_imp_push* x, uint8_t* buffer)
+void imp_push_copyandmask_buffer(t_imp_push* x)
 {
-	for(int l = 0; l < PUSH2_DISPLAY_HEIGHT; ++l)
-	{
-		int offset = l * PUSH2_DISPLAY_LINE_SIZE;
+	systhread_mutex_lock(x->mutex);
 
-		for(int r = 0; r < PUSH2_DISPLAY_LINE_SIZE - PUSH2_DISPLAY_LINE_GUTTER_SIZE; r += 4)
+	uint8_t* src = x->draw_buffer;
+	uint8_t* dst = x->send_buffer;
+
+	for(int dY = 0; dY < PUSH2_DISPLAY_HEIGHT; ++dY)
+	{
+		for(int dX = 0; dX < PUSH2_DISPLAY_LINE_BUFFER_SIZE - PUSH2_DISPLAY_LINE_GUTTER_SIZE; dX += 4)
 		{
-			buffer[offset + r] = buffer[offset + r] ^ 0xE7;
-			buffer[offset + r + 1] = buffer[offset + r + 1] ^ 0xF3;
-			buffer[offset + r + 2] = buffer[offset + r + 2] ^ 0xE7;
-			buffer[offset + r + 3] = buffer[offset + r + 3] ^ 0xFF;
+			*(dst++) = *(src++) ^ PUSH2_DISPLAY_SHAPING_PATTERN_1;
+			*(dst++) = *(src++) ^ PUSH2_DISPLAY_SHAPING_PATTERN_2;
+			*(dst++) = *(src++) ^ PUSH2_DISPLAY_SHAPING_PATTERN_3;
+			*(dst++) = *(src++) ^ PUSH2_DISPLAY_SHAPING_PATTERN_4;
 		}
+
+		src += PUSH2_DISPLAY_LINE_GUTTER_SIZE;
+		dst += PUSH2_DISPLAY_LINE_GUTTER_SIZE;
 	}
+
+	systhread_mutex_unlock(x->mutex);
 }
 
 void* imp_push_threadproc(t_imp_push *x)
 {
-	uint8_t* buffer_to_send;
-
 	while(!x->isThreadCancel)
 	{
-		systhread_mutex_lock(x->mutex);
-		buffer_to_send = x->frame_buffer;
-		systhread_mutex_unlock(x->mutex);
+		if (x->device != NULL && x->is_matrix_received)
+		{
+			systhread_mutex_lock(x->mutex);
 
-		if (x->device != NULL)
-			push2_send_frame(x->device, buffer_to_send);
+			int actual_length;
+
+			int result = libusb_bulk_transfer(
+				x->device,
+				PUSH2_BULK_EP_OUT,
+				PUSH2_DISPLAY_FRAME_HEADER,
+				sizeof(PUSH2_DISPLAY_FRAME_HEADER),
+				&actual_length,
+				PUSH2_TRANSFER_TIMEOUT);
+
+			switch(result)
+			{
+			case LIBUSB_ERROR_TIMEOUT:
+			case LIBUSB_ERROR_PIPE:
+			case LIBUSB_ERROR_OVERFLOW:
+			case LIBUSB_ERROR_NO_DEVICE:
+
+				break;
+
+			case 0:
+
+				break;
+			}
+
+			for (int i = 0; i < PUSH2_DISPLAY_MESSAGES_PER_IMAGE; ++i)
+			{
+				int result = libusb_bulk_transfer(
+					x->device,
+					PUSH2_BULK_EP_OUT,
+					x->send_buffer + (i * PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE),
+					PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE,
+					&actual_length,
+					PUSH2_TRANSFER_TIMEOUT);
+
+				if (result != 0)
+					break;
+			}
+
+			systhread_mutex_unlock(x->mutex);
+		}
 
 		systhread_sleep(1000 / PUSH2_DISPLAY_FRAMERATE);
 	}
 }
 
-void* imp_push_libusbproc(t_imp_push *x)
+libusb_device_handle* imp_push_open_device(t_imp_push* x)
 {
-	while (!x->isThreadCancel)
+	int result;
+
+	if ((result = libusb_init(NULL)) < 0)
 	{
-		if (libusb_handle_events(NULL) != LIBUSB_SUCCESS)
-			break;
+		object_error((t_object*)x, "Failed to initilialize libusb", result);
+		return NULL;
 	}
+
+	libusb_set_debug(NULL, LIBUSB_LOG_LEVEL_ERROR);
+
+	libusb_device** devices;
+	ssize_t count;
+	count = libusb_get_device_list(NULL, &devices);
+	if (count < 0)
+	{
+		object_error((t_object*)x, "Failed to get USB device list");
+		return NULL;
+	}
+
+	libusb_device* device;
+	libusb_device_handle* device_handle = NULL;
+
+	for (int i = 0; (device = devices[i]) != NULL; ++i)
+	{
+		struct libusb_device_descriptor descriptor;
+		if ((result = libusb_get_device_descriptor(device, &descriptor)) < 0)
+		{
+			object_error((t_object*)x, "Failed to get USB device descriptor");
+			continue;
+		}
+
+		if (descriptor.bDeviceClass == LIBUSB_CLASS_PER_INTERFACE
+			&& descriptor.idVendor == ABLETON_VENDOR_ID
+			&& descriptor.idProduct == PUSH2_PRODUCT_ID)
+		{
+			if ((result = libusb_open(device, &device_handle)) < 0)
+			{
+				object_error((t_object*)x, "Failed to open Push 2 device");
+			}
+			else if ((result = libusb_claim_interface(device_handle, 0)) < 0)
+			{
+				object_error((t_object*)x, "Failed to open Push 2 device, may be in use by another application");
+				libusb_close(device_handle);
+				device_handle = NULL;
+			}
+			else
+			{
+				// Successfully opened
+				break; 
+			}
+		}
+	}
+
+	libusb_free_device_list(devices, 1);
+	return device_handle;
+}
+
+void imp_push_close_device(t_imp_push* x, libusb_device_handle* device_handle)
+{
+	if (device_handle == NULL)
+		return;
+
+	libusb_release_interface(device_handle, 0);
+	libusb_close(device_handle);
 }

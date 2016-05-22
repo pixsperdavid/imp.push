@@ -23,7 +23,7 @@
 
 #define PUSH2_DISPLAY_FRAMERATE 60
 
-const uint8_t PUSH2_DISPLAY_FRAME_HEADER[] =
+const unsigned char PUSH2_DISPLAY_FRAME_HEADER[] =
 { 0xFF, 0xCC, 0xAA, 0x88,
 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00,
@@ -43,7 +43,7 @@ typedef struct _imp_push
 	t_uint8* send_buffer;
 
 	libusb_device_handle* device;
-	BOOL is_matrix_received;
+	t_bool is_matrix_received;
 
 } t_imp_push;
 
@@ -107,8 +107,8 @@ t_imp_push* imp_push_new()
 	{
 		systhread_mutex_new(&x->mutex, 0);
 
-		x->draw_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
-		x->send_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		x->draw_buffer = (t_uint8*)sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		x->send_buffer = (t_uint8*)sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
 		x->is_matrix_received = false;
 
 		x->device = imp_push_open_device(x);
@@ -121,7 +121,7 @@ t_imp_push* imp_push_new()
 void imp_push_free(t_imp_push* x)
 {
 	x->isThreadCancel = true; 
-	uint* value;
+	uint value;
 	systhread_join(x->thread, &value);
 
 	systhread_mutex_free(x->mutex);
@@ -139,7 +139,6 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 	long				in_savelock;
 	t_jit_matrix_info	in_minfo;
 	char				*in_bp;
-	long				i;
 	long				dimcount;
 	long				planecount;
 	long				dim[JIT_MATRIX_MAX_DIMCOUNT];
@@ -167,9 +166,9 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 		dimcount = in_minfo.dimcount;
 		planecount = in_minfo.planecount;
 
-		uint8_t* src = in_bp;
+		t_uint8* src = (t_uint8*)in_bp;
 
-		uint16_t* dst = (uint16_t*)x->draw_buffer;
+		t_uint16* dst = (t_uint16*)x->draw_buffer;
 
 		for(int dX = 0; dX < PUSH2_DISPLAY_HEIGHT; ++dX)
 		{
@@ -269,6 +268,8 @@ void* imp_push_threadproc(t_imp_push *x)
 
 		systhread_sleep(1000 / PUSH2_DISPLAY_FRAMERATE);
 	}
+    
+    return 0;
 }
 
 libusb_device_handle* imp_push_open_device(t_imp_push* x)

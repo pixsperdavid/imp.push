@@ -43,7 +43,8 @@ typedef struct _imp_push
 	t_uint8* send_buffer;
 
 	libusb_device_handle* device;
-	BOOL is_matrix_received;
+
+	t_bool status;
 
 } t_imp_push;
 
@@ -54,20 +55,24 @@ t_imp_push* imp_push_new();
 void imp_push_free(t_imp_push* x);
 t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs);
 void imp_push_copyandmask_buffer(t_imp_push* x);
-void* imp_push_threadproc(t_imp_push *x);
-libusb_device_handle* imp_push_open_device(t_imp_push* x);
-void imp_push_close_device(t_imp_push* x, libusb_device_handle* device_handle);
+void* imp_push_threadproc(t_imp_push* x);
+void imp_push_open_device(t_imp_push* x);
+void imp_push_close_device(t_imp_push* x);
 END_USING_C_LINKAGE
 
 // Globals
 static t_class* s_imp_push_class = NULL;
 
+static t_symbol* _sym_status;
+
 // Class registration
 t_jit_err imp_push_init()
 {
-	long attrflags = JIT_ATTR_GET_DEFER_LOW | JIT_ATTR_SET_USURP_LOW;
-	t_jit_object* attr;
+	post("imp.push V0.1 by David Butler / The Impersonal Stereo - 05/2016");
+
 	t_jit_object* mop;
+
+	_sym_status = gensym("status");
 
 	s_imp_push_class = (t_class*)jit_class_new("imp_push", (method)imp_push_new, (method)imp_push_free, sizeof(t_imp_push), 0);
 
@@ -87,8 +92,17 @@ t_jit_err imp_push_init()
 	
 	jit_class_addadornment(s_imp_push_class, mop);
 
+	// add attributes
+	t_jit_object* attr = jit_object_new(_jit_sym_jit_attr_offset, "status", _jit_sym_char, 
+		JIT_ATTR_GET_DEFER_LOW | JIT_ATTR_SET_USURP_LOW | JIT_ATTR_SET_OPAQUE_USER,
+		(method)0L, (method)0L, calcoffset(t_imp_push, status));
+	jit_class_addattr(s_imp_push_class, attr);
+
 	// add methods
 	jit_class_addmethod(s_imp_push_class, (method)imp_push_matrix_calc, "matrix_calc", A_CANT, 0);
+	jit_class_addmethod(s_imp_push_class, (method)imp_push_open_device, "open", 0);
+	jit_class_addmethod(s_imp_push_class, (method)imp_push_close_device, "close", 0);
+	jit_class_addmethod(s_imp_push_class, (method)jit_object_register, "register", A_CANT, 0);
 
 	// finalize class
 	jit_class_register(s_imp_push_class);
@@ -105,29 +119,24 @@ t_imp_push* imp_push_new()
 	x = (t_imp_push*)jit_object_alloc(s_imp_push_class);
 	if (x)
 	{
+		x->status = FALSE;
+
 		systhread_mutex_new(&x->mutex, 0);
 
 		x->draw_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
 		x->send_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
-		x->is_matrix_received = false;
+		imp_push_copyandmask_buffer(x);
 
-		x->device = imp_push_open_device(x);
-
-		systhread_create((method)imp_push_threadproc, x, 0, 0, 0, &x->thread);
+		imp_push_open_device(x);
 	}
 	return x;
 }
 
 void imp_push_free(t_imp_push* x)
 {
-	x->isThreadCancel = true; 
-	uint* value;
-	systhread_join(x->thread, &value);
+	imp_push_close_device(x, x->device);
 
 	systhread_mutex_free(x->mutex);
-
-	if (x->device != NULL)
-		imp_push_close_device(x, x->device);
 
 	sysmem_freeptr(x->draw_buffer);
 	sysmem_freeptr(x->send_buffer);
@@ -135,43 +144,66 @@ void imp_push_free(t_imp_push* x)
 
 t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 {
-	t_jit_err			err = JIT_ERR_NONE;
-	long				in_savelock;
-	t_jit_matrix_info	in_minfo;
-	char				*in_bp;
-	long				i;
-	long				dimcount;
-	long				planecount;
-	long				dim[JIT_MATRIX_MAX_DIMCOUNT];
-	void				*in_matrix;
+	void* input_matrix = jit_object_method(inputs, _jit_sym_getindex, 0);
 
-	in_matrix = jit_object_method(inputs, _jit_sym_getindex, 0);
+	if (!x || !input_matrix)
+		return JIT_ERR_INVALID_PTR;
 
-	if (x && in_matrix)
+	long lock = (long)jit_object_method(input_matrix, _jit_sym_lock, 1);
+
+	t_jit_matrix_info	input_info;
+	jit_object_method(input_matrix, _jit_sym_getinfo, &input_info);
+
+	if (input_info.dimcount != 2)
 	{
-		in_savelock = (long)jit_object_method(in_matrix, _jit_sym_lock, 1);
+		object_error((t_object*)x, "Input matrix must have 2 dimensions");
+		jit_object_method(input_matrix, _jit_sym_lock, lock);
+		return JIT_ERR_INVALID_INPUT;
+	}
 
-		x->is_matrix_received = true;
+	if (input_info.planecount != 3 && input_info.planecount != 4)
+	{
+		object_error((t_object*)x, "Input matrix must have 3 planes (RGB) or 4 planes (ARGB)");
+		jit_object_method(input_matrix, _jit_sym_lock, lock);
+		return JIT_ERR_INVALID_INPUT;
+	}
 
-		jit_object_method(in_matrix, _jit_sym_getinfo, &in_minfo);
+	if (input_info.dim[0] != PUSH2_DISPLAY_WIDTH || input_info.dim[1] != PUSH2_DISPLAY_HEIGHT)
+	{
+		object_error((t_object*)x, "Input matrix must have dimensions of 960 x 160");
+		jit_object_method(input_matrix, _jit_sym_lock, lock);
+		return JIT_ERR_INVALID_INPUT;
+	}
 
-		jit_object_method(in_matrix, _jit_sym_getdata, &in_bp);
+	char* input_data;
+	jit_object_method(input_matrix, _jit_sym_getdata, &input_data);
 
-		if (!in_bp)
+	if (!input_data)
+	{
+		jit_object_method(input_matrix, _jit_sym_lock, lock);
+		return JIT_ERR_INVALID_INPUT;
+	}
+
+	uint8_t* src = input_data;
+
+	uint16_t* dst = (uint16_t*)x->draw_buffer;
+
+	if (input_info.planecount == 3)
+	{
+		for (int dX = 0; dX < PUSH2_DISPLAY_HEIGHT; ++dX)
 		{
-			err = JIT_ERR_INVALID_INPUT;
-			goto out;
+			for (int dY = 0; dY < PUSH2_DISPLAY_WIDTH; ++dY)
+			{
+				*dst++ = (*(src) >> 3) | ((*(src + 1) & 0xFC) << 3) | ((*(src + 2) & 0xF8) << 8);
+				src += 3;
+			}
+
+			dst += PUSH2_DISPLAY_LINE_GUTTER_SIZE / 2;
 		}
-
-		//get dimensions/planecount
-		dimcount = in_minfo.dimcount;
-		planecount = in_minfo.planecount;
-
-		uint8_t* src = in_bp;
-
-		uint16_t* dst = (uint16_t*)x->draw_buffer;
-
-		for(int dX = 0; dX < PUSH2_DISPLAY_HEIGHT; ++dX)
+	}
+	else
+	{
+		for (int dX = 0; dX < PUSH2_DISPLAY_HEIGHT; ++dX)
 		{
 			for (int dY = 0; dY < PUSH2_DISPLAY_WIDTH; ++dY)
 			{
@@ -181,17 +213,11 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 
 			dst += PUSH2_DISPLAY_LINE_GUTTER_SIZE / 2;
 		}
-
-		imp_push_copyandmask_buffer(x);
-	}
-	else
-	{
-		return JIT_ERR_INVALID_PTR;
 	}
 
-out:
-	jit_object_method(in_matrix, _jit_sym_lock, in_savelock);
-	return err;
+	imp_push_copyandmask_buffer(x);
+
+	return JIT_ERR_NONE;
 }
 
 void imp_push_copyandmask_buffer(t_imp_push* x)
@@ -218,17 +244,19 @@ void imp_push_copyandmask_buffer(t_imp_push* x)
 	systhread_mutex_unlock(x->mutex);
 }
 
-void* imp_push_threadproc(t_imp_push *x)
+void* imp_push_threadproc(t_imp_push* x)
 {
+	int result;
+
 	while(!x->isThreadCancel)
 	{
-		if (x->device != NULL && x->is_matrix_received)
+		if (x->device != NULL)
 		{
 			systhread_mutex_lock(x->mutex);
 
 			int actual_length;
 
-			int result = libusb_bulk_transfer(
+			result = libusb_bulk_transfer(
 				x->device,
 				PUSH2_BULK_EP_OUT,
 				PUSH2_DISPLAY_FRAME_HEADER,
@@ -236,23 +264,12 @@ void* imp_push_threadproc(t_imp_push *x)
 				&actual_length,
 				PUSH2_TRANSFER_TIMEOUT);
 
-			switch(result)
-			{
-			case LIBUSB_ERROR_TIMEOUT:
-			case LIBUSB_ERROR_PIPE:
-			case LIBUSB_ERROR_OVERFLOW:
-			case LIBUSB_ERROR_NO_DEVICE:
-
+			if (result != 0)
 				break;
-
-			case 0:
-
-				break;
-			}
 
 			for (int i = 0; i < PUSH2_DISPLAY_MESSAGES_PER_IMAGE; ++i)
 			{
-				int result = libusb_bulk_transfer(
+				result = libusb_bulk_transfer(
 					x->device,
 					PUSH2_BULK_EP_OUT,
 					x->send_buffer + (i * PUSH2_DISPLAY_MESSAGE_BUFFER_SIZE),
@@ -265,14 +282,26 @@ void* imp_push_threadproc(t_imp_push *x)
 			}
 
 			systhread_mutex_unlock(x->mutex);
+
+			if (result != 0)
+				break;
 		}
 
 		systhread_sleep(1000 / PUSH2_DISPLAY_FRAMERATE);
 	}
+
+	libusb_release_interface(x->device, 0);
+	libusb_close(x->device);
+	x->device = NULL;
+
+	jit_attr_setlong(x, _sym_status, 0);
 }
 
-libusb_device_handle* imp_push_open_device(t_imp_push* x)
+void imp_push_open_device(t_imp_push* x)
 {
+	if (x->device != NULL)
+		return;
+
 	int result;
 
 	if ((result = libusb_init(NULL)) < 0)
@@ -327,14 +356,23 @@ libusb_device_handle* imp_push_open_device(t_imp_push* x)
 	}
 
 	libusb_free_device_list(devices, 1);
-	return device_handle;
+	x->device = device_handle;
+
+	if (x->device != NULL)
+	{
+		systhread_create((method)imp_push_threadproc, x, 0, 0, 0, &x->thread);
+		jit_attr_setlong(x, _sym_status, 1);
+	}
 }
 
-void imp_push_close_device(t_imp_push* x, libusb_device_handle* device_handle)
+void imp_push_close_device(t_imp_push* x)
 {
-	if (device_handle == NULL)
+	if (x->device == NULL)
 		return;
 
-	libusb_release_interface(device_handle, 0);
-	libusb_close(device_handle);
+	x->isThreadCancel = TRUE;
+	uint* value;
+	systhread_join(x->thread, &value);
+	x->isThreadCancel = FALSE;
+	x->thread = NULL;
 }

@@ -23,7 +23,7 @@
 
 #define PUSH2_DISPLAY_FRAMERATE 60
 
-const uint8_t PUSH2_DISPLAY_FRAME_HEADER[] =
+const unsigned char PUSH2_DISPLAY_FRAME_HEADER[] =
 { 0xFF, 0xCC, 0xAA, 0x88,
 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00,
@@ -43,7 +43,7 @@ typedef struct _imp_push
 	t_uint8* send_buffer;
 
 	libusb_device_handle* device;
-
+	
 	t_bool status;
 
 } t_imp_push;
@@ -134,7 +134,7 @@ t_imp_push* imp_push_new()
 
 void imp_push_free(t_imp_push* x)
 {
-	imp_push_close_device(x, x->device);
+	imp_push_close_device(x);
 
 	systhread_mutex_free(x->mutex);
 
@@ -183,7 +183,7 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 		jit_object_method(input_matrix, _jit_sym_lock, lock);
 		return JIT_ERR_INVALID_INPUT;
 	}
-
+	
 	uint8_t* src = input_data;
 
 	uint16_t* dst = (uint16_t*)x->draw_buffer;
@@ -295,6 +295,8 @@ void* imp_push_threadproc(t_imp_push* x)
 	x->device = NULL;
 
 	jit_attr_setlong(x, _sym_status, 0);
+	
+	return 0;
 }
 
 void imp_push_open_device(t_imp_push* x)
@@ -307,7 +309,7 @@ void imp_push_open_device(t_imp_push* x)
 	if ((result = libusb_init(NULL)) < 0)
 	{
 		object_error((t_object*)x, "Failed to initilialize libusb", result);
-		return NULL;
+		return;
 	}
 
 	libusb_set_debug(NULL, LIBUSB_LOG_LEVEL_ERROR);
@@ -318,7 +320,7 @@ void imp_push_open_device(t_imp_push* x)
 	if (count < 0)
 	{
 		object_error((t_object*)x, "Failed to get USB device list");
-		return NULL;
+		return;
 	}
 
 	libusb_device* device;
@@ -371,7 +373,7 @@ void imp_push_close_device(t_imp_push* x)
 		return;
 
 	x->isThreadCancel = TRUE;
-	uint* value;
+	unsigned int value;
 	systhread_join(x->thread, &value);
 	x->isThreadCancel = FALSE;
 	x->thread = NULL;

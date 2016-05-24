@@ -123,8 +123,8 @@ t_imp_push* imp_push_new()
 
 		systhread_mutex_new(&x->mutex, 0);
 
-		x->draw_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
-		x->send_buffer = sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		x->draw_buffer = (t_uint8*)sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
+		x->send_buffer = (t_uint8*)sysmem_newptrclear(PUSH2_DISPLAY_IMAGE_BUFFER_SIZE);
 		imp_push_copyandmask_buffer(x);
 
 		imp_push_open_device(x);
@@ -184,9 +184,9 @@ t_jit_err imp_push_matrix_calc(t_imp_push* x, void* inputs, void* outputs)
 		return JIT_ERR_INVALID_INPUT;
 	}
 	
-	uint8_t* src = input_data;
+	t_uint8* src = (t_uint8*)input_data;
 
-	uint16_t* dst = (uint16_t*)x->draw_buffer;
+	t_uint16* dst = (t_uint16*)x->draw_buffer;
 
 	if (input_info.planecount == 3)
 	{
@@ -252,8 +252,6 @@ void* imp_push_threadproc(t_imp_push* x)
 	{
 		if (x->device != NULL)
 		{
-			systhread_mutex_lock(x->mutex);
-
 			int actual_length;
 
 			result = libusb_bulk_transfer(
@@ -267,6 +265,9 @@ void* imp_push_threadproc(t_imp_push* x)
 			if (result != 0)
 				break;
 
+            
+            systhread_mutex_lock(x->mutex);
+            
 			for (int i = 0; i < PUSH2_DISPLAY_MESSAGES_PER_IMAGE; ++i)
 			{
 				result = libusb_bulk_transfer(

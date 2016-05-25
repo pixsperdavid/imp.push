@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		638A094C1CF6350A00123008 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 638A094B1CF6350A00123008 /* CoreFoundation.framework */; };
+		638A094E1CF6351A00123008 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 638A094D1CF6351A00123008 /* IOKit.framework */; };
+		638A09501CF6355B00123008 /* libobjc.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 638A094F1CF6355B00123008 /* libobjc.tbd */; };
 		63B2C9151CF276F600676D80 /* libusb-1.0.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 63B2C9141CF276F600676D80 /* libusb-1.0.a */; };
 		63B89AA01CF272ED0016A38A /* imp.push.c in Sources */ = {isa = PBXBuildFile; fileRef = 63B89A9E1CF272ED0016A38A /* imp.push.c */; };
 		63B89AA11CF272ED0016A38A /* max.imp.push.c in Sources */ = {isa = PBXBuildFile; fileRef = 63B89A9F1CF272ED0016A38A /* max.imp.push.c */; };
@@ -15,6 +18,9 @@
 /* Begin PBXFileReference section */
 		22CF10220EE984600054F513 /* maxmspsdk.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = maxmspsdk.xcconfig; path = build/maxmspsdk.xcconfig; sourceTree = SOURCE_ROOT; };
 		2FBBEAE508F335360078DB84 /* imp.push.mxo */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = imp.push.mxo; sourceTree = BUILT_PRODUCTS_DIR; };
+		638A094B1CF6350A00123008 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
+		638A094D1CF6351A00123008 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
+		638A094F1CF6355B00123008 /* libobjc.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libobjc.tbd; path = usr/lib/libobjc.tbd; sourceTree = SDKROOT; };
 		63B2C9141CF276F600676D80 /* libusb-1.0.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = "libusb-1.0.a"; path = "lib/libusb-1.0.20/lib/libusb-1.0.a"; sourceTree = "<group>"; };
 		63B89A9E1CF272ED0016A38A /* imp.push.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = imp.push.c; path = src/imp.push.c; sourceTree = "<group>"; };
 		63B89A9F1CF272ED0016A38A /* max.imp.push.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = max.imp.push.c; path = src/max.imp.push.c; sourceTree = "<group>"; };
@@ -25,6 +31,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				638A09501CF6355B00123008 /* libobjc.tbd in Frameworks */,
+				638A094E1CF6351A00123008 /* IOKit.framework in Frameworks */,
+				638A094C1CF6350A00123008 /* CoreFoundation.framework in Frameworks */,
 				63B2C9151CF276F600676D80 /* libusb-1.0.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -35,7 +44,7 @@
 		089C166AFE841209C02AAC07 /* iterator */ = {
 			isa = PBXGroup;
 			children = (
-				63B2C9141CF276F600676D80 /* libusb-1.0.a */,
+				638A09511CF6356400123008 /* Lib */,
 				22CF10220EE984600054F513 /* maxmspsdk.xcconfig */,
 				08FB77ADFE841716C02AAC07 /* Source */,
 				19C28FB4FE9D528D11CA2CBB /* Products */,
@@ -58,6 +67,17 @@
 				2FBBEAE508F335360078DB84 /* imp.push.mxo */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		638A09511CF6356400123008 /* Lib */ = {
+			isa = PBXGroup;
+			children = (
+				63B2C9141CF276F600676D80 /* libusb-1.0.a */,
+				638A094F1CF6355B00123008 /* libobjc.tbd */,
+				638A094B1CF6350A00123008 /* CoreFoundation.framework */,
+				638A094D1CF6351A00123008 /* IOKit.framework */,
+			);
+			name = Lib;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -173,7 +193,6 @@
 				GCC_OPTIMIZATION_LEVEL = 0;
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					/opt/local/lib,
 					"$(PROJECT_DIR)/lib/libusb-1.0.20/lib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = imp.push;
@@ -188,7 +207,6 @@
 				COPY_PHASE_STRIP = YES;
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					/opt/local/lib,
 					"$(PROJECT_DIR)/lib/libusb-1.0.20/lib",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = imp.push;
